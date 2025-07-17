@@ -5,6 +5,7 @@ import os
 import sys
 from mysql.connector.errors import IntegrityError
 from datetime import date
+from datetime import datetime
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import mysql.connector
 class FlightReservation:
@@ -20,24 +21,25 @@ class FlightReservation:
         )
 
         if connection.is_connected():
-            mycursor = connection.cursor()
+            mycursor = connection.cursor(buffered=True)
 
             departure = input("Select departure airport (Use 3 letter abbreviation): ")
             arrival = input("Select destination nairport (Use 3 letter abbreviation): ")
             
+            with connection.cursor() as cursor:
+                mycursor.execute("""SELECT flight_no, dep_port, arri_port, dep_time, arri_time, booked_seats FROM flight
+                WHERE dep_port = %s AND arri_port = %s""", (departure, arrival))
+            flights = mycursor.fetchall()
 
-            query = """
-                SELECT flight_no FROM flight
-                WHERE arri_port = %s AND dep_port = %s
-                LIMIT 1
-            """
+            print("\nAvailable flights:")
+            for i, (fno, dp, ap, dt, at, bs) in enumerate(flights, start=1):
+                print(f" {i}. Flight {fno}: {dp}→{ap}, departs {dt}, arrives {at}, booked seats {bs}")
 
-            mycursor.execute(query, (arrival, departure))
-            myresult = mycursor.fetchone()
-
+            myresult = input("Enter you desired flight number: ")
+                             
             if myresult:
                 print("Flight number:", myresult[0])
-                flightNum = myresult[0]
+                flightNum = myresult.strip()
                     
                 while True:
                     bookFlight = input("Would you like to book this flight? (Yes/No): ").strip().lower()
@@ -153,14 +155,57 @@ class FlightReservation:
             password="secret",
             database="flight")
 
-        mycursor = connection.cursor()
-        #mycursor.execute("SELECT account_id FROM account WHERE username = %s", (username,))
-        getArri = input("Enter the Destination of the flight (3 initials only): ").strip()
-        getDep = input("Enter the location of the flight's departure (3 initials only): ").strip()
-        getCode = input("Enter the airline code: ").strip()
-        getDist = ("Enter the flight's distance in km: ").strip()
-        
+        mycursor = connection.cursor(dictionary=True)
 
+        print("Enter new flight details:")
+        #flight_no = input("Enter Flight number: ").strip()
+        airline_code   = input("Enter Airline code: ").strip()
+        dist      = input("Enter Distance (km): ").strip()
+        dep_time  = input("Enter Departure (YYYY‑MM‑DD HH:MM:SS): ").strip()
+        arr_time  = input("Enter Arrival   (YYYY‑MM‑DD HH:MM:SS): ").strip()
+        dep_port  = input("Enter Departure port: ").strip()
+        arr_port  = input("Enter Arrival port: ").strip()
+        seats = 0
+        
+        try:
+            #flight_no = int(flight_no)
+            dist = float(dist)
+            seats = int(seats)
+            dep_dt = datetime.strptime(dep_time, "%Y-%m-%d %H:%M:%S")
+            arr_dt = datetime.strptime(arr_time, "%Y-%m-%d %H:%M:%S")
+        except Exception as e:
+            print("Error, invalid input", e, " found, returning to menu")
+            mycursor.close()
+            connection.close()
+            return
+        
+        #print("Flight #: ", flight_no)
+        print("Airline Code: ", airline_code)
+        print("Distance: ", dist, "km")
+        print("Departure Time: ", dep_dt)
+        print("Arrival Time: ", arr_dt)
+        print("Departure Port: ", dep_port)
+        print("Arrival Port: ", arr_port)
+
+        flightConf = input("Confirm this flight (yes/no): ").strip().lower()
+        if flightConf not in ('yes', 'y'):
+            print("Flight Not Confirmed, Returning to menu")
+            mycursor.close()
+            connection.close()
+            return
+        else:
+            insert_sql = """INSERT INTO flight
+            (airline_code, distance_km, dep_time, arri_time, dep_port, arri_port, booked_seats) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s)"""
+
+            params = (airline_code, dist,
+            dep_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            arr_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            dep_port,  arr_port, seats)
+
+            mycursor.execute(insert_sql, params)
+            connection.commit()
+            print("Flight Commited, please check database for confirmation")
 
     def adminRemove(self):
         connection = mysql.connector.connect(
@@ -179,6 +224,7 @@ class FlightReservation:
             mycursor.close()
             connection.close()
             return
+        
 
         print(f"\nFound flight {remFlight}:")
         print(f"  Airline Code:    {row['airline_code']}")
